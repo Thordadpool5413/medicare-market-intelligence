@@ -2,22 +2,29 @@
   "name": "medicare-market-intelligence",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
+    "dev": "vite",
+    "dev:server": "node server/server.mjs",
+    "dev:full": "concurrently \"npm run dev\" \"npm run dev:server\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/server.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "next": "latest",
-    "openai": "latest",
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "typescript": "latest"
+    "openai": "latest",
+    "express": "latest",
+    "cors": "latest",
+    "concurrently": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
   },
   "devDependencies": {}
 }
