@@ -1,0 +1,377 @@
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --panel: rgba(255, 255, 255, 0.08);
+  --panel-strong: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.13);
+  --text: #f8fafc;
+  --muted: #aeb9ca;
+  --cyan: #77e6ff;
+  --emerald: #8fffd2;
+  --danger: #ffbf9c;
+  --danger-bg: rgba(255, 120, 80, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(49, 213, 255, 0.19), transparent 34rem),
+    radial-gradient(circle at bottom right, rgba(146, 96, 255, 0.18), transparent 38rem),
+    var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 56px;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px);
+  border-radius: 32px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: 32px;
+  align-items: center;
+  padding: 38px;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--cyan);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 850px;
+  margin-bottom: 20px;
+  font-size: clamp(2.4rem, 5vw, 5.35rem);
+  line-height: 0.96;
+  letter-spacing: -0.07em;
+}
+
+h2 {
+  margin-bottom: 6px;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  letter-spacing: -0.035em;
+}
+
+.heroText {
+  max-width: 780px;
+  color: #d8e3f6;
+  font-size: 1.12rem;
+  line-height: 1.75;
+}
+
+.readinessCard {
+  border: 1px solid var(--border);
+  background: rgba(2, 8, 23, 0.68);
+  border-radius: 28px;
+  padding: 26px;
+}
+
+.readinessCard strong {
+  display: block;
+  margin: 8px 0 18px;
+  font-size: 3.2rem;
+}
+
+.muted,
+.smallText {
+  color: var(--muted);
+}
+
+.smallText {
+  margin: 18px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.progressTrack {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--emerald));
+  transition: width 250ms ease;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.metricCard {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 26px;
+  padding: 22px;
+}
+
+.metricCard span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.metricCard strong {
+  display: block;
+  margin: 10px 0 8px;
+  font-size: 1.45rem;
+}
+
+.metricCard p {
+  margin: 0;
+  color: #c9d4e6;
+  line-height: 1.5;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 0.95fr 1.05fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.formPanel,
+.outputPanel {
+  padding: 26px;
+}
+
+.sectionHeader {
+  margin-bottom: 22px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+label span {
+  color: #e5edf9;
+  font-weight: 700;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  outline: none;
+  background: rgba(2, 8, 23, 0.72);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 14px 15px;
+  line-height: 1.55;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(119, 230, 255, 0.8);
+  box-shadow: 0 0 0 4px rgba(119, 230, 255, 0.12);
+}
+
+.buttonRow {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 18px;
+  padding: 14px 18px;
+  color: #06111f;
+  background: var(--cyan);
+  font-weight: 850;
+  transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  background: #a7efff;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
+.secondaryButton,
+.sampleBox button {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.secondaryButton:hover,
+.sampleBox button:hover {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.sampleBox {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+  border: 1px solid var(--border);
+  background: rgba(2, 8, 23, 0.45);
+  border-radius: 22px;
+  padding: 18px;
+}
+
+.sampleBox strong {
+  margin-bottom: 4px;
+}
+
+.sampleBox button {
+  padding: 12px 14px;
+  text-align: left;
+  line-height: 1.45;
+  font-weight: 700;
+}
+
+.outputPanel {
+  min-height: 560px;
+}
+
+.emptyState,
+.errorBox,
+.analysisBox {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 24px;
+}
+
+.emptyState {
+  background: rgba(2, 8, 23, 0.5);
+  text-align: center;
+}
+
+.emptyState strong,
+.errorBox strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 1.25rem;
+}
+
+.emptyState p,
+.errorBox p {
+  margin-bottom: 0;
+  color: #c9d4e6;
+  line-height: 1.65;
+}
+
+.errorBox {
+  border-color: rgba(255, 191, 156, 0.36);
+  background: var(--danger-bg);
+}
+
+.errorBox strong {
+  color: var(--danger);
+}
+
+.analysisBox {
+  background: rgba(2, 8, 23, 0.62);
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.metaRow span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #c9d4e6;
+  font-size: 0.85rem;
+}
+
+pre {
+  white-space: pre-wrap;
+  margin: 0;
+  color: #f4f8ff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+@media (max-width: 980px) {
+  .hero,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .cardGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    width: min(100% - 20px, 1180px);
+    padding-top: 12px;
+  }
+
+  .hero,
+  .formPanel,
+  .outputPanel {
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .buttonRow {
+    flex-direction: column;
+  }
+}
