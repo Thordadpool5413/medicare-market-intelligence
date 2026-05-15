@@ -21,6 +21,7 @@
     "openai": "latest",
     "express": "latest",
     "cors": "latest",
+    "papaparse": "latest",
     "concurrently": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
