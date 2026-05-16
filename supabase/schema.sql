@@ -52,8 +52,11 @@ create index if not exists idx_cms_hospitals_priority on public.cms_hospitals (p
 create index if not exists idx_cms_hospitals_score on public.cms_hospitals (opportunity_score desc);
 create index if not exists idx_cms_hospitals_type on public.cms_hospitals (hospital_type);
 create index if not exists idx_cms_hospitals_ownership on public.cms_hospitals (ownership);
+create index if not exists idx_cms_hospitals_state_county on public.cms_hospitals (state, county);
+create index if not exists idx_cms_hospitals_readmission on public.cms_hospitals (readmission_worse_count);
 create index if not exists idx_cms_hospices_state on public.cms_hospices (state);
 create index if not exists idx_cms_hospices_county on public.cms_hospices (county);
+create index if not exists idx_cms_hospices_state_county on public.cms_hospices (state, county);
 
 alter table public.cms_hospitals enable row level security;
 alter table public.cms_hospices enable row level security;
@@ -76,3 +79,44 @@ create policy "Public read ingestion runs"
   on public.cms_ingestion_runs
   for select
   using (true);
+
+create or replace view public.cms_state_summary as
+select
+  h.state,
+  count(*)::integer as hospital_count,
+  count(*) filter (where h.priority = 'High')::integer as high_priority_count,
+  count(*) filter (where coalesce(h.readmission_worse_count, 0) > 0)::integer as readmission_pressure_count,
+  round(avg(h.overall_rating)::numeric, 2) as average_rating,
+  coalesce(x.hospice_count, 0)::integer as hospice_count,
+  max(h.updated_at) as latest_hospital_update
+from public.cms_hospitals h
+left join (
+  select state, count(*) as hospice_count
+  from public.cms_hospices
+  group by state
+) x on x.state = h.state
+group by h.state, x.hospice_count;
+
+create or replace view public.cms_county_summary as
+select
+  h.state,
+  h.county,
+  count(*)::integer as hospital_count,
+  count(*) filter (where h.priority = 'High')::integer as high_priority_count,
+  count(*) filter (where coalesce(h.readmission_worse_count, 0) > 0)::integer as readmission_pressure_count,
+  round(avg(h.overall_rating)::numeric, 2) as average_rating,
+  coalesce(x.hospice_count, 0)::integer as hospice_count,
+  max(h.updated_at) as latest_hospital_update
+from public.cms_hospitals h
+left join (
+  select state, county, count(*) as hospice_count
+  from public.cms_hospices
+  group by state, county
+) x on x.state = h.state and x.county = h.county
+group by h.state, h.county, x.hospice_count;
+
+grant select on public.cms_hospitals to anon, authenticated;
+grant select on public.cms_hospices to anon, authenticated;
+grant select on public.cms_ingestion_runs to anon, authenticated;
+grant select on public.cms_state_summary to anon, authenticated;
+grant select on public.cms_county_summary to anon, authenticated;
