@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { supabase } from "./lib/supabase";
+import { supabase, supabaseConfig } from "./lib/supabase";
 
 type Hospital = {
   facility_id: string;
@@ -83,6 +83,25 @@ function csvDownload(filename: string, rows: Record<string, unknown>[]) {
   URL.revokeObjectURL(url);
 }
 
+function setupCard(title: string, message: string, details: string[]) {
+  return (
+    <main className="shell">
+      <section className="hero panel">
+        <div>
+          <p className="eyebrow">Supabase setup required</p>
+          <h1>{title}</h1>
+          <p className="heroText">{message}</p>
+        </div>
+        <div className="readinessCard">
+          <p className="muted">What to check</p>
+          <strong>Configuration</strong>
+          {details.map((detail) => <p className="smallText" key={detail}>{detail}</p>)}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function applyHospitalFilters(query: any, filters: Filters) {
   let next = query;
   if (filters.state !== "All") next = next.eq("state", filters.state);
@@ -126,6 +145,8 @@ export default function NationalDashboard() {
   const [lastRun, setLastRun] = useState<IngestionRun | null>(null);
 
   async function loadOptions() {
+    if (!supabase) throw new Error("Supabase client is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Hostinger, then rebuild.");
+
     const [stateResult, ownershipResult, typeResult, hospitalTotal, hospiceTotal, runResult] = await Promise.all([
       supabase.from("cms_hospitals").select("state").not("state", "is", null).order("state"),
       supabase.from("cms_hospitals").select("ownership").not("ownership", "is", null).order("ownership"),
@@ -138,6 +159,9 @@ export default function NationalDashboard() {
     if (stateResult.error) throw stateResult.error;
     if (ownershipResult.error) throw ownershipResult.error;
     if (typeResult.error) throw typeResult.error;
+    if (hospitalTotal.error) throw hospitalTotal.error;
+    if (hospiceTotal.error) throw hospiceTotal.error;
+    if (runResult.error) throw runResult.error;
 
     setStates([...new Set((stateResult.data || []).map((row: any) => row.state).filter(Boolean))]);
     setOwnerships([...new Set((ownershipResult.data || []).map((row: any) => row.ownership).filter(Boolean))]);
@@ -148,6 +172,7 @@ export default function NationalDashboard() {
   }
 
   async function loadCounties(selectedState: string) {
+    if (!supabase) throw new Error("Supabase client is not configured.");
     if (selectedState === "All") {
       setCounties([]);
       return;
@@ -158,6 +183,12 @@ export default function NationalDashboard() {
   }
 
   async function loadData() {
+    if (!supabaseConfig.isConfigured || !supabase) {
+      setStatus("error");
+      setError("Missing Supabase browser variables. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Hostinger, then rebuild the Vite app.");
+      return;
+    }
+
     setStatus("loading");
     setError(null);
 
@@ -228,6 +259,11 @@ export default function NationalDashboard() {
   const pageCount = Math.max(1, Math.ceil(hospitalCount / PAGE_SIZE));
 
   async function exportCurrentHospitals() {
+    if (!supabase) {
+      setError("Supabase is not configured, so export cannot run.");
+      return;
+    }
+
     const { data, error: exportError } = await applyHospitalFilters(
       supabase.from("cms_hospitals").select("facility_id,name,city,state,zip,county,hospital_type,ownership,overall_rating,readmission_worse_count,mortality_worse_count,safety_worse_count,opportunity_score,priority,rationale"),
       filters
@@ -243,13 +279,26 @@ export default function NationalDashboard() {
     csvDownload("cms-hospitals-current-view.csv", (data || []) as unknown as Record<string, unknown>[]);
   }
 
+  if (!supabaseConfig.isConfigured) {
+    return setupCard(
+      "The dashboard is installed, but Supabase is not configured yet.",
+      "Hostinger built the Vite app without the required Supabase browser variables. Add the two VITE variables in Hostinger, then redeploy.",
+      [
+        "Add VITE_SUPABASE_URL in Hostinger.",
+        "Add VITE_SUPABASE_ANON_KEY in Hostinger.",
+        "Redeploy using npm run build and output directory dist.",
+        "Run the GitHub Actions ingestion workflow after Supabase schema is created."
+      ]
+    );
+  }
+
   return (
     <main className="shell">
       <section className="hero panel">
         <div>
           <p className="eyebrow">Supabase national CMS backend</p>
           <h1>National Medicare market intelligence</h1>
-          <p className="heroText">Hostinger serves the Vite app. Supabase stores the national CMS hospital and hospice data. No browser CMS fetches. No Hostinger API routing mess.</p>
+          <p className="heroText">Hostinger serves the Vite app. Supabase stores the national CMS hospital and hospice data. The dashboard now renders setup and data errors instead of going blank.</p>
         </div>
         <div className="readinessCard">
           <p className="muted">Data status</p>
