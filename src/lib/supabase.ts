@@ -1,14 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const browserToken = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn("Missing Supabase browser environment variables. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Hostinger.");
-}
+export const supabaseConfig = {
+  url: url || "",
+  isConfigured: Boolean(url && browserToken)
+};
 
-export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
-  auth: {
-    persistSession: false
-  }
-});
+export const supabase = supabaseConfig.isConfigured
+  ? createClient(url as string, browserToken as string, {
+      auth: {
+        persistSession: false
+      }
+    })
+  : null;
