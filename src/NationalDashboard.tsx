@@ -1,24 +1,27 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+type CmsRow = Record<string, string | number | null | undefined>;
+
 type Hospital = {
-  facilityId: string;
+  id: string;
   name: string;
   city: string;
   state: string;
   zip: string;
   county: string;
-  type: string;
+  hospitalType: string;
   ownership: string;
   overallRating: number | null;
-  readmissionWorseCount: number;
-  mortalityWorseCount: number;
-  safetyWorseCount: number;
+  readmissionWorse: number;
+  mortalityWorse: number;
+  safetyWorse: number;
   opportunityScore: number;
-  priority: string;
+  priority: "High" | "Medium" | "Lower";
+  rationale: string;
 };
 
 type Hospice = {
-  providerId: string;
+  id: string;
   name: string;
   city: string;
   state: string;
@@ -27,227 +30,310 @@ type Hospice = {
   ownership: string;
 };
 
-type AreaIndex = {
-  state: string;
-  county?: string;
-  hospitals: number;
-  hospices: number;
-  highPriorityHospitals: number;
-  readmissionPressureHospitals: number;
-  averageRating: number | null;
-};
-
 type Snapshot = {
-  generatedAt: string;
-  source: string;
-  datasets: Record<string, { id: string; label: string; rows: number }>;
-  hospitals: Hospital[];
-  hospices: Hospice[];
-  indexes: {
-    states: AreaIndex[];
-    counties: AreaIndex[];
-  };
+  generatedAt?: string;
+  source?: string;
   error?: string;
+  hospitals?: unknown[];
+  hospices?: unknown[];
 };
 
 type Filters = {
-  geography: string;
   state: string;
   county: string;
-  search: string;
   priority: string;
+  ownership: string;
+  hospitalType: string;
+  search: string;
 };
 
-const initialFilters: Filters = {
-  geography: "National",
+const CMS_BASE = "https://data.cms.gov/provider-data/api/1/datastore/query";
+const HOSPITAL_DATASET_ID = "xubh-q36u";
+const HOSPICE_GENERAL_DATASET_ID = "yc9t-dgbk";
+const HOSPICE_PROVIDER_DATASET_ID = "252m-zfp9";
+
+const DEFAULT_FILTERS: Filters = {
   state: "All",
   county: "All",
-  search: "",
-  priority: "All"
+  priority: "All",
+  ownership: "All",
+  hospitalType: "All",
+  search: ""
 };
 
-const stateNames: Record<string, string> = {
-  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming", DC: "District of Columbia"
-};
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function numberFrom(value: unknown, fallback = 0) {
+  const raw = clean(value);
+  if (!raw || raw === "Not Available") return fallback;
+  const parsed = Number(raw.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getField(row: CmsRow, names: string[]) {
+  for (const name of names) {
+    const value = row[name];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return "";
+}
 
 function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined) return "Not available";
+  if (value === null || value === undefined || Number.isNaN(value)) return "Not available";
   return new Intl.NumberFormat("en-US").format(value);
 }
 
-function normalize(value: string) {
-  return value.trim().toLowerCase();
+function average(values: Array<number | null>) {
+  const valid = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (!valid.length) return null;
+  return Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2));
 }
 
-function priorityClass(priority: string) {
-  if (priority === "High") return "priority high";
-  if (priority === "Medium") return "priority medium";
-  return "priority lower";
+function normalizeHospital(row: CmsRow): Hospital {
+  const rating = numberFrom(row.hospital_overall_rating ?? row.overallRating, 0);
+  const readmissionWorse = numberFrom(row.count_of_readm_measures_worse ?? row.readmissionWorseCount ?? row.readmissionWorse, 0);
+  const mortalityWorse = numberFrom(row.count_of_mort_measures_worse ?? row.mortalityWorseCount ?? row.mortalityWorse, 0);
+  const safetyWorse = numberFrom(row.count_of_safety_measures_worse ?? row.safetyWorseCount ?? row.safetyWorse, 0);
+  const readmissionMeasures = numberFrom(row.count_of_facility_readm_measures ?? row.readmissionMeasures, 0);
+  const mortalityMeasures = numberFrom(row.count_of_facility_mort_measures ?? row.mortalityMeasures, 0);
+  const emergencyBoost = clean(row.emergency_services ?? row.emergencyServices).toLowerCase() === "yes" ? 5 : 0;
+  const ratingPressure = rating > 0 ? (5 - rating) * 9 : 20;
+  const rawScore = ratingPressure + readmissionWorse * 18 + mortalityWorse * 12 + safetyWorse * 10 + Math.min(readmissionMeasures, 11) * 1.5 + Math.min(mortalityMeasures, 8) + emergencyBoost;
+  const opportunityScore = numberFrom(row.opportunityScore, Math.max(0, Math.min(100, Math.round(rawScore))));
+
+  return {
+    id: clean(row.facility_id ?? row.facilityId ?? row.id),
+    name: clean(row.facility_name ?? row.name),
+    city: clean(row.citytown ?? row.city),
+    state: clean(row.state),
+    zip: clean(row.zip_code ?? row.zip),
+    county: clean(row.countyparish ?? row.county),
+    hospitalType: clean(row.hospital_type ?? row.type ?? row.hospitalType),
+    ownership: clean(row.hospital_ownership ?? row.ownership),
+    overallRating: rating || null,
+    readmissionWorse,
+    mortalityWorse,
+    safetyWorse,
+    opportunityScore,
+    priority: opportunityScore >= 65 ? "High" : opportunityScore >= 42 ? "Medium" : "Lower",
+    rationale: [
+      rating ? `CMS overall rating ${rating}` : "CMS overall rating unavailable",
+      `${readmissionWorse} worse than average readmission group signal`,
+      `${mortalityWorse} worse than average mortality group signal`,
+      `${safetyWorse} worse than average safety group signal`
+    ].join(". ")
+  };
 }
 
-function inferGeography(value: string): Partial<Filters> {
-  const text = normalize(value);
-  if (!text || ["national", "all", "usa", "united states"].includes(text)) {
-    return { state: "All", county: "All" };
+function normalizeHospice(row: CmsRow): Hospice {
+  return {
+    id: clean(getField(row, ["provider_id", "facility_id", "ccn", "cms_certification_number", "providerId", "id"])),
+    name: clean(getField(row, ["provider_name", "facility_name", "hospice_name", "name"])),
+    city: clean(getField(row, ["citytown", "city", "provider_city"])),
+    state: clean(getField(row, ["state", "state_code"])),
+    zip: clean(getField(row, ["zip_code", "zip", "provider_zip_code"])),
+    county: clean(getField(row, ["countyparish", "county", "county_name"])),
+    ownership: clean(getField(row, ["ownership_type", "type_of_ownership", "ownership", "provider_type"]))
+  };
+}
+
+async function fetchCmsDataset(datasetId: string, label: string, onProgress: (message: string) => void) {
+  const pageSize = 5000;
+  let offset = 0;
+  const rows: CmsRow[] = [];
+
+  for (let page = 0; page < 120; page += 1) {
+    const url = `${CMS_BASE}/${datasetId}/0?limit=${pageSize}&offset=${offset}`;
+    const response = await fetch(url, { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error(`${label} returned HTTP ${response.status}`);
+    const json = await response.json();
+    const pageRows = Array.isArray(json.results) ? json.results : [];
+    rows.push(...pageRows);
+    onProgress(`${label}: loaded ${formatNumber(rows.length)} rows`);
+    if (pageRows.length < pageSize) break;
+    offset += pageSize;
   }
 
-  const matchedState = Object.entries(stateNames).find(([code, name]) => text.includes(code.toLowerCase()) || text.includes(name.toLowerCase()));
-  const countyMatch = value.match(/([A-Za-z .']+)\s+County/i);
-
-  if (countyMatch) {
-    return { state: matchedState?.[0] ?? "All", county: countyMatch[1].trim().toUpperCase() };
-  }
-
-  return matchedState ? { state: matchedState[0], county: "All" } : { state: "All", county: "All", search: value };
+  return rows;
 }
 
-function buildNarrative(hospitals: Hospital[], hospices: Hospice[], filters: Filters) {
-  const high = hospitals.filter((hospital) => hospital.priority === "High").length;
-  const readmission = hospitals.filter((hospital) => hospital.readmissionWorseCount > 0).length;
-  const top = hospitals.slice(0, 5);
-  const market = filters.state === "All" ? "National" : `${filters.county !== "All" ? `${filters.county} County, ` : ""}${filters.state}`;
+async function loadSnapshot() {
+  const response = await fetch(`/data/national-cms.json?cacheBust=${Date.now()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`/data/national-cms.json returned HTTP ${response.status}`);
+  const snapshot = (await response.json()) as Snapshot;
+  if (snapshot.error) throw new Error(snapshot.error);
+  const hospitals = Array.isArray(snapshot.hospitals) ? snapshot.hospitals.map((row) => normalizeHospital(row as CmsRow)).filter((row) => row.name) : [];
+  const hospices = Array.isArray(snapshot.hospices) ? snapshot.hospices.map((row) => normalizeHospice(row as CmsRow)).filter((row) => row.name) : [];
+  if (!hospitals.length) throw new Error("The national snapshot loaded, but it did not contain hospital records.");
+  return { hospitals, hospices, source: snapshot.source || "Local national CMS snapshot" };
+}
 
-  return [
-    "Executive view",
-    `${market} view includes ${formatNumber(hospitals.length)} hospitals and ${formatNumber(hospices.length)} hospice provider records. ${formatNumber(high)} hospitals are scored as high opportunity based on public CMS quality pressure signals.`,
-    "",
-    "What the CMS data shows",
-    `${formatNumber(readmission)} hospitals in the current view have at least one worse than average readmission signal. This is a market education indicator, not a referral promise or clinical determination.`,
-    "",
-    "Highest opportunity facilities",
-    top.length ? top.map((hospital, index) => `${index + 1}. ${hospital.name}, ${hospital.city}, ${hospital.state}. Score ${hospital.opportunityScore}. CMS rating ${hospital.overallRating ?? "not available"}. Readmission pressure ${hospital.readmissionWorseCount}.`).join("\n") : "No hospitals match the current filters.",
-    "",
-    "Compliant field conversation angles",
-    "Use this data to prioritize education around earlier eligibility recognition, caregiver stress, symptom escalation, discharge planning, serious illness conversations, and goals of care clarity. Do not use it for patient targeting, steering, inducement, or outcome guarantees.",
-    "",
-    "Data limitations",
-    "This dashboard uses public CMS Provider Data summarized for market intelligence. It does not contain PHI, patient level claims, patient names, or individual eligibility determinations."
-  ].join("\n");
+async function loadLiveCms(onProgress: (message: string) => void) {
+  const hospitalRows = await fetchCmsDataset(HOSPITAL_DATASET_ID, "Hospital General Information", onProgress);
+  let hospiceRows: CmsRow[] = [];
+
+  try {
+    hospiceRows = await fetchCmsDataset(HOSPICE_GENERAL_DATASET_ID, "Hospice General Information", onProgress);
+  } catch {
+    hospiceRows = await fetchCmsDataset(HOSPICE_PROVIDER_DATASET_ID, "Hospice Provider Data", onProgress);
+  }
+
+  return {
+    hospitals: hospitalRows.map(normalizeHospital).filter((row) => row.name),
+    hospices: hospiceRows.map(normalizeHospice).filter((row) => row.name),
+    source: "Live CMS Provider Data API fallback"
+  };
+}
+
+function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [headers.join(","), ...rows.map((row) => headers.map((header) => JSON.stringify(row[header] ?? "")).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function NationalDashboard() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [filters, setFilters] = useState<Filters>(initialFilters);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [message, setMessage] = useState("Loading national CMS dataset snapshot.");
+  const [progress, setProgress] = useState("Loading local national CMS snapshot.");
+  const [source, setSource] = useState("Not loaded yet");
+  const [error, setError] = useState<string | null>(null);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [hospices, setHospices] = useState<Hospice[]>([]);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+
+  async function loadData() {
+    setStatus("loading");
+    setError(null);
+    setProgress("Trying local national CMS snapshot first.");
+
+    try {
+      const localData = await loadSnapshot();
+      setHospitals(localData.hospitals);
+      setHospices(localData.hospices);
+      setSource(localData.source);
+      setProgress(`Loaded ${formatNumber(localData.hospitals.length)} hospitals from local national snapshot.`);
+      setStatus("ready");
+      return;
+    } catch (snapshotError) {
+      setProgress(`Local snapshot unavailable. Trying live CMS fallback. ${snapshotError instanceof Error ? snapshotError.message : "Unknown snapshot error"}`);
+    }
+
+    try {
+      const liveData = await loadLiveCms(setProgress);
+      setHospitals(liveData.hospitals);
+      setHospices(liveData.hospices);
+      setSource(liveData.source);
+      setProgress(`Loaded ${formatNumber(liveData.hospitals.length)} hospitals from live CMS fallback.`);
+      setStatus("ready");
+    } catch (liveError) {
+      setStatus("error");
+      setError(liveError instanceof Error ? liveError.message : "Unable to load CMS data.");
+      setProgress("Data failed to load. Hostinger needs either the generated national snapshot at /data/national-cms.json or a working CMS network connection.");
+    }
+  }
 
   useEffect(() => {
-    fetch("/data/national-cms.json", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Could not load national CMS snapshot. HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((data: Snapshot) => {
-        setSnapshot(data);
-        setStatus(data.error ? "error" : "ready");
-        setMessage(data.error || "National CMS data loaded.");
-      })
-      .catch((error) => {
-        setStatus("error");
-        setMessage(error instanceof Error ? error.message : "National CMS data could not be loaded.");
-      });
+    loadData();
   }, []);
 
-  const states = useMemo(() => {
-    if (!snapshot) return [];
-    return [...new Set(snapshot.hospitals.map((hospital) => hospital.state).filter(Boolean))].sort();
-  }, [snapshot]);
-
-  const counties = useMemo(() => {
-    if (!snapshot || filters.state === "All") return [];
-    return [...new Set(snapshot.hospitals.filter((hospital) => hospital.state === filters.state).map((hospital) => hospital.county).filter(Boolean))].sort();
-  }, [snapshot, filters.state]);
+  const states = useMemo(() => [...new Set(hospitals.map((hospital) => hospital.state).filter(Boolean))].sort(), [hospitals]);
+  const counties = useMemo(() => [...new Set(hospitals.filter((hospital) => filters.state === "All" || hospital.state === filters.state).map((hospital) => hospital.county).filter(Boolean))].sort(), [hospitals, filters.state]);
+  const ownerships = useMemo(() => [...new Set(hospitals.map((hospital) => hospital.ownership).filter(Boolean))].sort(), [hospitals]);
+  const hospitalTypes = useMemo(() => [...new Set(hospitals.map((hospital) => hospital.hospitalType).filter(Boolean))].sort(), [hospitals]);
 
   const filteredHospitals = useMemo(() => {
-    if (!snapshot) return [];
-    const search = normalize(filters.search);
-    return snapshot.hospitals
+    const search = filters.search.trim().toLowerCase();
+    return hospitals
       .filter((hospital) => filters.state === "All" || hospital.state === filters.state)
       .filter((hospital) => filters.county === "All" || hospital.county === filters.county)
       .filter((hospital) => filters.priority === "All" || hospital.priority === filters.priority)
-      .filter((hospital) => !search || `${hospital.name} ${hospital.city} ${hospital.county} ${hospital.state} ${hospital.zip} ${hospital.type} ${hospital.ownership}`.toLowerCase().includes(search))
+      .filter((hospital) => filters.ownership === "All" || hospital.ownership === filters.ownership)
+      .filter((hospital) => filters.hospitalType === "All" || hospital.hospitalType === filters.hospitalType)
+      .filter((hospital) => !search || `${hospital.name} ${hospital.city} ${hospital.county} ${hospital.state} ${hospital.zip} ${hospital.ownership} ${hospital.hospitalType}`.toLowerCase().includes(search))
       .sort((a, b) => b.opportunityScore - a.opportunityScore);
-  }, [snapshot, filters]);
+  }, [hospitals, filters]);
 
   const filteredHospices = useMemo(() => {
-    if (!snapshot) return [];
-    const search = normalize(filters.search);
-    return snapshot.hospices
+    const search = filters.search.trim().toLowerCase();
+    return hospices
       .filter((hospice) => filters.state === "All" || hospice.state === filters.state)
       .filter((hospice) => filters.county === "All" || hospice.county === filters.county)
       .filter((hospice) => !search || `${hospice.name} ${hospice.city} ${hospice.county} ${hospice.state} ${hospice.zip} ${hospice.ownership}`.toLowerCase().includes(search));
-  }, [snapshot, filters]);
+  }, [hospices, filters]);
 
-  const metrics = useMemo(() => {
-    const ratings = filteredHospitals.map((hospital) => hospital.overallRating).filter((rating): rating is number => typeof rating === "number");
-    return {
-      hospitals: filteredHospitals.length,
-      hospices: filteredHospices.length,
-      highPriority: filteredHospitals.filter((hospital) => hospital.priority === "High").length,
-      readmissionPressure: filteredHospitals.filter((hospital) => hospital.readmissionWorseCount > 0).length,
-      averageRating: ratings.length ? Number((ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length).toFixed(2)) : null
-    };
-  }, [filteredHospitals, filteredHospices]);
+  const metrics = useMemo(() => ({
+    hospitals: filteredHospitals.length,
+    hospices: filteredHospices.length,
+    highPriority: filteredHospitals.filter((hospital) => hospital.priority === "High").length,
+    readmissionPressure: filteredHospitals.filter((hospital) => hospital.readmissionWorse > 0).length,
+    averageRating: average(filteredHospitals.map((hospital) => hospital.overallRating))
+  }), [filteredHospitals, filteredHospices]);
 
-  const narrative = useMemo(() => buildNarrative(filteredHospitals, filteredHospices, filters), [filteredHospitals, filteredHospices, filters]);
-
-  function updateFilters(patch: Partial<Filters>) {
-    setFilters((current) => ({ ...current, ...patch }));
+  function updateFilter(key: keyof Filters, value: string) {
+    setFilters((current) => ({ ...current, [key]: value, ...(key === "state" ? { county: "All" } : {}) }));
   }
 
-  function applyGeography(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setFilters((current) => ({ ...current, ...inferGeography(current.geography) }));
   }
 
   return (
     <main className="shell">
       <section className="hero panel">
         <div>
-          <p className="eyebrow">Full national CMS Provider Data snapshot</p>
-          <h1>National Medicare market intelligence, not a county demo.</h1>
-          <p className="heroText">The app now loads a national CMS Provider Data snapshot created during deployment. Start national, then filter by state, county, ZIP, hospital name, ownership, facility type, or priority.</p>
+          <p className="eyebrow">National CMS Provider Data</p>
+          <h1>National Medicare market intelligence</h1>
+          <p className="heroText">The app now tries the generated national snapshot first, then falls back to live CMS Provider Data if the snapshot is missing.</p>
         </div>
         <div className="readinessCard">
-          <p className="muted">Dataset status</p>
-          <strong>{status === "ready" ? "Live" : status === "loading" ? "Loading" : "Check"}</strong>
-          <div className="progressTrack" aria-label="Dataset status"><div className="progressFill" style={{ width: status === "ready" ? "100%" : status === "loading" ? "55%" : "20%" }} /></div>
-          <p className="smallText">{message}</p>
-          {snapshot && <p className="smallText">Snapshot generated: {new Date(snapshot.generatedAt).toLocaleString()}</p>}
+          <p className="muted">Data status</p>
+          <strong>{status === "ready" ? "Live" : status === "loading" ? "Loading" : "Failed"}</strong>
+          <div className="progressTrack"><div className="progressFill" style={{ width: status === "ready" ? "100%" : status === "loading" ? "65%" : "20%" }} /></div>
+          <p className="smallText">{progress}</p>
+          <p className="smallText">Source: {source}</p>
+          {error && <p className="smallText">Error: {error}</p>}
+          <button onClick={loadData}>Reload data</button>
         </div>
       </section>
 
-      <section className="cardGrid" aria-label="National analytics metrics">
-        <article className="metricCard"><span>Hospitals in view</span><strong>{formatNumber(metrics.hospitals)}</strong><p>Filtered from the full national hospital dataset.</p></article>
-        <article className="metricCard"><span>Hospice providers in view</span><strong>{formatNumber(metrics.hospices)}</strong><p>Filtered from national hospice provider data.</p></article>
-        <article className="metricCard"><span>High opportunity hospitals</span><strong>{formatNumber(metrics.highPriority)}</strong><p>Directional public CMS education opportunity score.</p></article>
-        <article className="metricCard"><span>Readmission pressure</span><strong>{formatNumber(metrics.readmissionPressure)}</strong><p>Hospitals with worse than average readmission signals.</p></article>
+      <section className="cardGrid">
+        <article className="metricCard"><span>Hospitals in view</span><strong>{formatNumber(metrics.hospitals)}</strong><p>Filtered from national CMS hospital data.</p></article>
+        <article className="metricCard"><span>Hospice records in view</span><strong>{formatNumber(metrics.hospices)}</strong><p>Filtered from national hospice data.</p></article>
+        <article className="metricCard"><span>High priority hospitals</span><strong>{formatNumber(metrics.highPriority)}</strong><p>Directional public CMS education opportunity.</p></article>
+        <article className="metricCard"><span>Readmission pressure</span><strong>{formatNumber(metrics.readmissionPressure)}</strong><p>Hospitals with worse than average readmission signal groups.</p></article>
       </section>
 
       <section className="workspace">
-        <form className="panel formPanel" onSubmit={applyGeography}>
-          <div className="sectionHeader"><p className="eyebrow">National filter console</p><h2>Start national, then narrow the market.</h2></div>
-          <label><span>Geography quick search</span><input value={filters.geography} onChange={(event) => updateFilters({ geography: event.target.value })} placeholder="National, Florida, Brevard County, Florida, Orlando, FL" /></label>
-          <div className="buttonRow"><button type="submit">Apply geography</button><button type="button" className="secondaryButton" onClick={() => setFilters(initialFilters)}>Reset to national</button></div>
-          <label><span>State</span><select value={filters.state} onChange={(event) => updateFilters({ state: event.target.value, county: "All" })}><option>All</option>{states.map((state) => <option key={state} value={state}>{state} {stateNames[state] ? `, ${stateNames[state]}` : ""}</option>)}</select></label>
-          <label><span>County</span><select value={filters.county} onChange={(event) => updateFilters({ county: event.target.value })} disabled={filters.state === "All"}><option>All</option>{counties.map((county) => <option key={county} value={county}>{county}</option>)}</select></label>
-          <label><span>Priority</span><select value={filters.priority} onChange={(event) => updateFilters({ priority: event.target.value })}><option>All</option><option>High</option><option>Medium</option><option>Lower</option></select></label>
-          <label><span>Search hospitals, hospices, ZIP, city, ownership, or type</span><input value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} placeholder="Example: nonprofit, acute care, Melbourne, 32901" /></label>
+        <form className="panel formPanel" onSubmit={handleSubmit}>
+          <div className="sectionHeader"><p className="eyebrow">Filters</p><h2>Start national, then narrow the market.</h2></div>
+          <label><span>State</span><select value={filters.state} onChange={(event) => updateFilter("state", event.target.value)}><option>All</option>{states.map((state) => <option key={state}>{state}</option>)}</select></label>
+          <label><span>County</span><select value={filters.county} onChange={(event) => updateFilter("county", event.target.value)} disabled={filters.state === "All"}><option>All</option>{counties.map((county) => <option key={county}>{county}</option>)}</select></label>
+          <label><span>Priority</span><select value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}><option>All</option><option>High</option><option>Medium</option><option>Lower</option></select></label>
+          <label><span>Hospital type</span><select value={filters.hospitalType} onChange={(event) => updateFilter("hospitalType", event.target.value)}><option>All</option>{hospitalTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
+          <label><span>Ownership</span><select value={filters.ownership} onChange={(event) => updateFilter("ownership", event.target.value)}><option>All</option>{ownerships.map((ownership) => <option key={ownership}>{ownership}</option>)}</select></label>
+          <label><span>Search</span><input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} placeholder="Hospital, hospice, city, ZIP, ownership, or type" /></label>
+          <div className="buttonRow"><button type="button" onClick={() => setFilters(DEFAULT_FILTERS)}>Reset to national</button><button type="button" onClick={() => downloadCsv("hospitals.csv", filteredHospitals as unknown as Record<string, unknown>[])}>Export hospitals</button><button type="button" onClick={() => downloadCsv("hospices.csv", filteredHospices as unknown as Record<string, unknown>[])}>Export hospices</button></div>
         </form>
 
-        <section className="panel outputPanel" aria-live="polite">
-          <div className="sectionHeader"><p className="eyebrow">Executive output</p><h2>Market intelligence result</h2></div>
-          {status === "loading" && <div className="emptyState"><strong>Loading national CMS snapshot.</strong><p>The app is loading the deployment generated data file.</p></div>}
-          {status === "error" && <div className="errorBox"><strong>Dataset problem</strong><p>{message}</p></div>}
-          {status === "ready" && snapshot && <div className="resultStack"><div className="summaryBox"><strong>{metrics.hospitals === snapshot.hospitals.length ? "National view active" : "Filtered market view active"}</strong><p>Average CMS hospital rating in view: {formatNumber(metrics.averageRating)}. Total national hospitals loaded: {formatNumber(snapshot.hospitals.length)}. Total national hospice records loaded: {formatNumber(snapshot.hospices.length)}.</p></div><article className="analysisBox"><div className="metaRow"><span>Static national CMS snapshot</span><span>{snapshot.source}</span></div><pre>{narrative}</pre></article></div>}
+        <section className="panel outputPanel">
+          <div className="sectionHeader"><p className="eyebrow">Executive view</p><h2>{filters.state === "All" ? "National market" : `${filters.county !== "All" ? `${filters.county} County, ` : ""}${filters.state}`}</h2></div>
+          {status === "error" ? <div className="errorBox"><strong>Data failed to load</strong><p>{progress}</p><p>{error}</p></div> : <div className="summaryBox"><strong>{formatNumber(metrics.hospitals)} hospitals and {formatNumber(metrics.hospices)} hospice records in view.</strong><p>{formatNumber(metrics.highPriority)} high priority hospitals. {formatNumber(metrics.readmissionPressure)} hospitals with worse than average readmission pressure. Average CMS rating: {formatNumber(metrics.averageRating)}.</p></div>}
+          <article className="analysisBox"><pre>{filteredHospitals.slice(0, 8).map((hospital, index) => `${index + 1}. ${hospital.name}, ${hospital.city}, ${hospital.state}. Score ${hospital.opportunityScore}. ${hospital.rationale}.`).join("\n") || "No facilities match the current filters yet."}</pre></article>
         </section>
       </section>
 
-      {snapshot && <section className="analyticsGrid">
-        <article className="panel tablePanel"><div className="sectionHeader"><p className="eyebrow">Hospital rankings</p><h2>Highest opportunity facilities in current view</h2><p className="mutedText">Score uses CMS rating pressure, readmission pressure, mortality pressure, safety pressure, facility measures, and emergency service presence.</p></div><div className="tableWrap"><table><thead><tr><th>Score</th><th>Priority</th><th>Facility</th><th>Market</th><th>Rating</th><th>Readmission</th><th>Ownership</th><th>Type</th></tr></thead><tbody>{filteredHospitals.slice(0, 100).map((hospital) => <tr key={`${hospital.facilityId}-${hospital.name}`}><td><strong>{hospital.opportunityScore}</strong></td><td><span className={priorityClass(hospital.priority)}>{hospital.priority}</span></td><td>{hospital.name}</td><td>{hospital.city}, {hospital.county}, {hospital.state}</td><td>{hospital.overallRating ?? "N/A"}</td><td>{hospital.readmissionWorseCount}</td><td>{hospital.ownership}</td><td>{hospital.type}</td></tr>)}</tbody></table></div></article>
-        <article className="panel insightPanel"><div className="sectionHeader"><p className="eyebrow">National state index</p><h2>Top states by high opportunity count</h2></div><div className="providerList">{snapshot.indexes.states.slice(0, 20).map((state) => <span key={state.state}>{state.state}: {formatNumber(state.highPriorityHospitals)} high priority</span>)}</div></article>
-        <article className="panel insightPanel"><div className="sectionHeader"><p className="eyebrow">Hospice context</p><h2>Hospice providers in view</h2></div><p className="bigNumber">{formatNumber(metrics.hospices)}</p><div className="providerList">{filteredHospices.slice(0, 30).map((hospice) => <span key={`${hospice.providerId}-${hospice.name}`}>{hospice.name}, {hospice.city}, {hospice.state}</span>)}{!filteredHospices.length && <span>No hospice provider records match the current filters.</span>}</div></article>
-      </section>}
+      <section className="analyticsGrid">
+        <article className="panel tablePanel"><div className="sectionHeader"><p className="eyebrow">Hospital rankings</p><h2>Top 100 hospitals in current view</h2></div><div className="tableWrap"><table><thead><tr><th>Score</th><th>Priority</th><th>Facility</th><th>Market</th><th>Rating</th><th>Readmission</th><th>Ownership</th><th>Type</th></tr></thead><tbody>{filteredHospitals.slice(0, 100).map((hospital) => <tr key={`${hospital.id}-${hospital.name}`}><td><strong>{hospital.opportunityScore}</strong></td><td>{hospital.priority}</td><td>{hospital.name}</td><td>{hospital.city}, {hospital.county}, {hospital.state} {hospital.zip}</td><td>{hospital.overallRating ?? "N/A"}</td><td>{hospital.readmissionWorse}</td><td>{hospital.ownership}</td><td>{hospital.hospitalType}</td></tr>)}</tbody></table></div></article>
+        <article className="panel insightPanel"><div className="sectionHeader"><p className="eyebrow">Hospice providers</p><h2>Top 50 in current view</h2></div><div className="providerList">{filteredHospices.slice(0, 50).map((hospice, index) => <span key={`${hospice.id}-${hospice.name}-${index}`}>{hospice.name}, {hospice.city}, {hospice.state}</span>)}{!filteredHospices.length && <span>No hospice records match the current filters.</span>}</div></article>
+      </section>
     </main>
   );
 }
