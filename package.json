@@ -1,26 +1,22 @@
 {
   "name": "medicare-market-intelligence",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:server": "node server/server.mjs",
-    "dev:full": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server/server.mjs",
+    "ingest:supabase": "node scripts/ingest-supabase.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@supabase/supabase-js": "latest",
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
     "typescript": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "express": "latest",
-    "cors": "latest",
-    "concurrently": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest"
